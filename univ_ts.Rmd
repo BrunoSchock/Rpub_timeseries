@@ -1,0 +1,206 @@
+---
+title: "ts_analysis"
+author: "Bruno Henrique Schock"
+date: "April 28, 2019"
+output: html_document
+---
+
+## Univariate time series analysis
+
+Hello fellas, here's a small "tutorial" on how to run a simple analysis on some univariate time series, since the analysis of it's kind, such as observing which data we are messing up, to the prediction analysis with some popular metrics used in the literature, I really hope it suits well for you.
+
+At first, of course, we need to check, and if not, install our packages, I'm sure some of them you are very used to, but to keep sure I'll leave some information on what they are influencing in our analysis.
+
+
+```{r setup, include=T}
+#Do we have all the packages? If not, install it!
+packages <- c("urca", "forecast", "curl", "tseries", "MAPA")
+new.ones <- packages[!(packages %in% installed.packages()[,"Package"])]
+if(length(new.ones)) install.packages(new.ones)
+
+#Load them
+library(urca)
+library(forecast)
+library(curl)
+library(tseries)
+library(MAPA)
+```
+
+
+
+
+```{r cars}
+#Let's organize our data
+orgdata <- list(nhtemp, austres, AirPassengers, EuStockMarkets[,4])
+data <- list(as.matrix(orgdata[[1]]), as.matrix(orgdata[[2]]), as.matrix(orgdata[[3]]), as.matrix(orgdata[[4]]))
+freq <- list(frequency(orgdata[[1]]), frequency(orgdata[[2]]), frequency(orgdata[[3]]), frequency(orgdata[[4]]))
+
+
+#We need to peek our data too
+par(mfrow=c(ifelse(length(data)%%2==F, length(data)/2, (length(data)-1)), ifelse(length(data)%%2==F, length(data)/2, (length(data)-1))))
+for(i in 1:length(data))plot(ts(data[[i]], start = start(orgdata[[i]]), end=end(orgdata[[i]]), frequency = frequency(orgdata[[i]])))
+```
+
+## Including Plots
+
+```{r pressure, echo=FALSE}
+#Create our statistics matrix in some organized way
+teststats <- matrix(NA, nrow=ncol(data[[1]]), ncol=6)
+teststat <- list()
+colnames(teststats) <- c('tau3', 'phi2', 'phi3', 'tau2', 'phi1', 'tau1')
+rownames(teststats) <- colnames(data[[1]])
+
+#Now our critical values matrices
+cvals <- matrix(NA, ncol=3, nrow=6)
+cval <- list()
+colnames(cvals) <- c('1pct', '5pct', '10pct')
+rownames(cvals) <- c('tau3', 'phi2', 'phi3', 'tau2', 'phi1', 'tau1')
+
+for(j in 1:length(data)){
+for(i in 1:ncol(data[[j]])){
+  teststats[i,1:3] <- ur.df(data[[j]][,i], type='trend', selectlags = 'AIC')@teststat
+  cvals[1:3,] <- ur.df(data[[j]][,1], type='trend', selectlags = 'AIC')@cval
+  teststats[i,4:5] <- ur.df(data[[j]][,i], type='drift', selectlags = 'AIC')@teststat
+  cvals[4:5,] <- ur.df(data[[j]][,1], type='drift', selectlags = 'AIC')@cval
+  teststats[i,6] <- ur.df(data[[j]][,i], type='none', selectlags = 'AIC')@teststat
+  cvals[6,] <- ur.df(data[[j]][,1], type='none', selectlags = 'AIC')@cval
+}
+teststat[[j]] <-teststats 
+cval[[j]] <- cvals
+}
+
+```
+
+```{r}
+#More brick breeaking 
+results <- matrix(NA, ncol=1, nrow=length(data))
+colnames(results) <- 'Process kind:'
+rownames(results) <- colnames(data)
+
+
+#Now we test our conditions suck as sugested in Pfaff(2008)
+for(j in 1:length(data)){
+for(i in 1:ncol(data[[j]])){
+  if(teststat[[j]][i,1] < cval[[j]][1,1] | teststat[[j]][i,1] < cval[[j]][1,2] |
+     teststat[[j]][i,1] < cval[[j]][1,3]){
+    results[j,] <- "Stationary around a linear tendency"
+  }
+  else{if(teststat[[j]][i,3] > cval[[j]][3,1] | teststat[[j]][i,3] > cval[[j]][3,2] |
+          teststat[[j]][i,3] > cval[[j]][3,3]){
+    results[j,] <- "Random walk with linear tendency"
+  }
+    else { if(teststat[[j]][i,4] < cval[[j]][4,1] | teststat[[j]][i,4] < cval[[j]][4,2] |
+              teststat[[j]][i,4] < cval[[j]][4,3]){
+      results[j,] <- "Stationary around a constant"
+    }
+      else { if(teststat[[j]][i,5] > cval[[j]][5,1] | teststat[[j]][i,5] > cval[[j]][5,2] |
+                teststat[[j]][i,5] > cval[[j]][5,3]){
+        results[j,] <- "Random walk with drift"
+      }
+        else { if(teststat[[j]][i,6] < cval[[j]][6,1] | teststat[[j]][i,6] < cval[[j]][6,2] |
+                  teststat[[j]][i,6] < cval[[j]][6,3]){
+          results[j,] <- "Stationary with zero mean"
+        } else {
+          results[j,] <- "Random walk without drift"
+        }}}}}
+  if (freq[[j]] == 1) {
+    results[j,] <- results[j,]
+  }
+  else if ((nsdiffs(ts(data[[j]][,i], frequency=freq[[j]])) >= 1)) {
+  results[j,] <- paste0(results[j,]," with seasonality")}
+print(results[j,])
+}
+ print("Voil?!")
+   }
+
+```
+
+
+
+
+```{r}
+#Criamos as fun??es que far?o parte da an?lise
+pred.perf = function(pred, test) {
+  fitt = pred - test
+  MAE = sum(abs(fitt))/length(test)
+  MAPE = sum(abs(fitt/pred))/length(test)
+  RSS = sum(fitt^2)
+  MSE = RSS/length(test)
+  RMSE = sqrt(MSE)
+  perf = data.frame(MAE, MAPE, RSS, MSE, RMSE)
+  }
+
+#Criamos a fun??o
+forefun <- function(train_pe, test_pe, plot.res=T, seriesname, lims=F, beg, fin, ybeg, yfin){
+  
+  #Aggregate forecasting methods
+  autoarim <- auto.arima(train_pe)
+  autoholt <- ifelse(frequency(train_pe)==1,
+  HoltWinters(train_pe,gamma=F), HoltWinters(train_pe))
+  autotbat <- tbats(train_pe)
+  automapa <- mapaest(train_pe)
+
+  #Predict
+  predarim <- predict(autoarim, n.ahead=length(test_pe))
+  predholt <- forecast(autoholt[[1]], h=length(test_pe))
+  predtbat <- forecast(autotbat, h=length(test_pe))
+  predmapa <- mapafor(train_pe, automapa, fh=length(test_pe))
+
+
+  #Measure the performance
+  arimperf <- pred.perf(as.numeric(predarim$pred), test_pe)
+  holtperf <- pred.perf(as.numeric(predholt$forecast$xhat$mean), test_pe)
+  tbatperf <- pred.perf(as.numeric(predtbat$mean), test_pe)
+  mapaperf <- pred.perf(predmapa$outfor, test_pe)
+
+  performance <- rbind(arimperf, holtperf, tbatperf, mapaperf)
+  rownames(performance) <- c("SARIMA", "HoltWinters", "TBATs", "MAPA")
+  
+
+  if(plot.res == T & lims == F) {
+    ts.plot(train_pe, predarim$pred, predholt$forecast$xhat$mean , predtbat$mean, ts(predmapa$outfor, start = start(test_pe), end=end(test_pe),
+    frequency=frequency(train_pe)), col = 1:5, lty=1:5)
+    legend("topleft", c(seriesname, "AutoArima", "HoltWinters", "TBATs", "MAPA"), lty = 1:5, 
+           col = 1:5)
+  }
+  
+  if(plot.res == T & lims == T) {
+    ts.plot(train_pe, predarim$pred, predholt$forecast$xhat$mean , predtbat$mean, ts(predmapa$outfor, start = start(test_pe), end=end(test_pe),
+            frequency=frequency(train_pe)), col = 1:5, lty=1:5, xlim=c(beg, fin), ylim=c(ybeg, yfin))
+    legend("topleft", c(seriesname, "AutoArima", "HoltWinters", "TBATs", "MAPA"), lty = 1:5, 
+           col = 1:5)
+  }
+  
+    print(seriesname)
+  print(performance[order(performance$MAPE),])
+
+  }
+
+```
+
+
+```{r}
+
+train_pe <- window(orgdata[[1]], start=start(orgdata[[1]]), end=c(1959,1))
+test_pe <- window(orgdata[[1]], start=c(1959,1), end=end(orgdata[[1]]))
+forefun(train_pe, test_pe, "", plot.res = T, lims=F)
+
+```
+
+
+```{r}
+train_pe <- window(orgdata[[2]], start=start(orgdata[[2]]), end=c(1991,1))
+test_pe <- window(orgdata[[2]], start=c(1991,1), end=end(orgdata[[2]]))
+nhpres <- forefun(train_pe, test_pe, "", plot.res = T, lims=F)
+
+```
+
+
+```{r}
+train_pe <- window(orgdata[[3]], start=start(orgdata[[3]]), end=c(1957,12))
+test_pe <- window(orgdata[[3]], start=c(1958,1), end=end(orgdata[[3]]))
+
+nhpres <- forefun(train_pe, test_pe, "", plot.res = T, lims=F)
+
+```
+
