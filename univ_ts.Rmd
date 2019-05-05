@@ -5,43 +5,59 @@ date: "April 28, 2019"
 output: html_document
 ---
 
-## Univariate time series analysis
+## Brief univariate time series analysis
 
-Hello fellas, here's a small "tutorial" on how to run a simple analysis on some univariate time series, since the analysis of it's kind, such as observing which data we are messing up, to the prediction analysis with some popular metrics used in the literature, I really hope it suits well for you.
+Hello fellas, here's a small "tutorial" on how to run a simple analysis on some univariate time series, since the analysis of it's kind, such as observing which data we are messing up, to the prediction analysis with some popular metrics used in the literature, I really hope it suits well for you if you wanna run a fast cheap analysis in some time series, of course after this kind of analysis I really hope you take the next pace to proceed to a more profound analysis of the best predictor for your dataset, such as all many tests we have in the literature.
 
 At first, of course, we need to check, and if not, install our packages, I'm sure some of them you are very used to, but to keep sure I'll leave some information on what they are influencing in our analysis.
 
 
-```{r setup, include=T}
+```{r setup, include=T, error=F, warning=F, message=F}
 #Do we have all the packages? If not, install it!
-packages <- c("urca", "forecast", "curl", "tseries", "MAPA")
+packages <- c("urca", "forecast", "curl", "tseries", "MAPA", "BETS")
 new.ones <- packages[!(packages %in% installed.packages()[,"Package"])]
 if(length(new.ones)) install.packages(new.ones)
 
-#Load them
+#Carregamos os pacotes
 library(urca)
 library(forecast)
 library(curl)
 library(tseries)
 library(MAPA)
+library(BETS)
 ```
 
 
+Now we choose our data and organize it. As the intention is to use different models analysis, we are going to use different datasets as well. The data are organized as:
 
+1. New Haven average yearly temperature from 1912 to 1971;
+2. Australian residents number from a quarterly data beginning in 1971 second to 1993 second;
+3. Air passengers quantity from a monthly period between 1949 and 1960;
+4. Brazillian consumer price index ranging from 1996 to 2019
+
+As you can see, almost all data we can get in R, except our mostly adherent to reality data, the IPCA one, the one chosen as a case that you can find everyday when at work. Good! Now that it's set, let's take a look at them.
 
 ```{r cars}
+
+#Getting our "real" data
+ipca <- BETSget(433, from="1996-01-01", to="2019-05-01")
+
 #Let's organize our data
-orgdata <- list(nhtemp, austres, AirPassengers, EuStockMarkets[,4])
+orgdata <- list(nhtemp, austres, AirPassengers, ipca)
 data <- list(as.matrix(orgdata[[1]]), as.matrix(orgdata[[2]]), as.matrix(orgdata[[3]]), as.matrix(orgdata[[4]]))
 freq <- list(frequency(orgdata[[1]]), frequency(orgdata[[2]]), frequency(orgdata[[3]]), frequency(orgdata[[4]]))
+names <- c("New Haven", "Australian", "Air Passengers", "IPCA")
 
 
 #We need to peek our data too
 par(mfrow=c(ifelse(length(data)%%2==F, length(data)/2, (length(data)-1)), ifelse(length(data)%%2==F, length(data)/2, (length(data)-1))))
-for(i in 1:length(data))plot(ts(data[[i]], start = start(orgdata[[i]]), end=end(orgdata[[i]]), frequency = frequency(orgdata[[i]])))
+for(i in 1:length(data))plot(ts(data[[i]], start = start(orgdata[[i]]), end=end(orgdata[[i]]), frequency = frequency(orgdata[[i]])), ylab=names[i])
 ```
 
-## Including Plots
+Perfect! Now we need to organize our analysis on which kind of time series we are dealing, that's important in cases we need to suggest a model. First, create the matrices and organize our thoughts.
+
+
+## What's the deal of our data, my dear "Xeroque Romes"?
 
 ```{r pressure, echo=FALSE}
 #Create our statistics matrix in some organized way
@@ -70,6 +86,9 @@ cval[[j]] <- cvals
 }
 
 ```
+
+Right, here's the time when we look at our processes and suggest what generator process we are dealing with trough tests suggested at Pfaff (2008)
+
 
 ```{r}
 #More brick breeaking 
@@ -110,16 +129,27 @@ for(i in 1:ncol(data[[j]])){
   results[j,] <- paste0(results[j,]," with seasonality")}
 print(results[j,])
 }
- print("Voil?!")
+ print("Voilà!")
    }
 
 ```
 
+Right, as you guys can see, we are dealing with some different kinds of problems here as such different kinds of frequencies, so if you are planning to do a model sugestion to cover these problems feel free to keep on track and construct the corresponding models.
+
+As there are many models online that cover our problem in an automatized way, I'm going to use automatic functions that deal with these kind of discrepancies in our generator process of time series. From now, there are many suggested models we can fit, I personally choose four different methods to deal with our prediction analysis, they are:
+
+ * SARIMA (Seasonal Autoregressive Integrated Moving-Average) 
+ * HoltWinters (a.k.a Tripple Exponential Smoothing)
+ * TBATS (Exponential smoothing state space model with Box-Cox transformation, ARMA errors, Trend and Seasonal components)
+ * MAPA (Multiple Aggregation Prediction Algortihm)
+ 
+Feel free to check it's extensive literature about each one of them online. Now it's time to set the functions for our analysis and than run to the analysis itself.
 
 
+## Elementary my dear Watson, prediction time!
 
 ```{r}
-#Criamos as fun??es que far?o parte da an?lise
+#Function for prediction accuracy
 pred.perf = function(pred, test) {
   fitt = pred - test
   MAE = sum(abs(fitt))/length(test)
@@ -130,7 +160,7 @@ pred.perf = function(pred, test) {
   perf = data.frame(MAE, MAPE, RSS, MSE, RMSE)
   }
 
-#Criamos a fun??o
+#Function to fill all our analysis
 forefun <- function(train_pe, test_pe, plot.res=T, seriesname, lims=F, beg, fin, ybeg, yfin){
   
   #Aggregate forecasting methods
@@ -141,7 +171,7 @@ forefun <- function(train_pe, test_pe, plot.res=T, seriesname, lims=F, beg, fin,
   automapa <- mapaest(train_pe)
 
   #Predict
-  predarim <- predict(autoarim, n.ahead=length(test_pe))
+  predarim <- stats::predict(autoarim, n.ahead=length(test_pe))
   predholt <- forecast(autoholt[[1]], h=length(test_pe))
   predtbat <- forecast(autotbat, h=length(test_pe))
   predmapa <- mapafor(train_pe, automapa, fh=length(test_pe))
@@ -160,14 +190,14 @@ forefun <- function(train_pe, test_pe, plot.res=T, seriesname, lims=F, beg, fin,
   if(plot.res == T & lims == F) {
     ts.plot(train_pe, predarim$pred, predholt$forecast$xhat$mean , predtbat$mean, ts(predmapa$outfor, start = start(test_pe), end=end(test_pe),
     frequency=frequency(train_pe)), col = 1:5, lty=1:5)
-    legend("topleft", c(seriesname, "AutoArima", "HoltWinters", "TBATs", "MAPA"), lty = 1:5, 
+    legend("topleft", c(seriesname, "Arima", "HoltWinters", "TBATs", "MAPA"), lty = 1:5, 
            col = 1:5)
   }
   
   if(plot.res == T & lims == T) {
-    ts.plot(train_pe, predarim$pred, predholt$forecast$xhat$mean , predtbat$mean, ts(predmapa$outfor, start = start(test_pe), end=end(test_pe),
+    ts.plot(train_pe, predarim$pred, predholt$forecast$xhat$mean , predtbat$mean, ts(predmapa$outfor, start=start(test_pe), end=end(test_pe),
             frequency=frequency(train_pe)), col = 1:5, lty=1:5, xlim=c(beg, fin), ylim=c(ybeg, yfin))
-    legend("topleft", c(seriesname, "AutoArima", "HoltWinters", "TBATs", "MAPA"), lty = 1:5, 
+    legend("topleft", c(seriesname, "Arima", "HoltWinters", "TBATs", "MAPA"), lty = 1:5, 
            col = 1:5)
   }
   
@@ -178,29 +208,58 @@ forefun <- function(train_pe, test_pe, plot.res=T, seriesname, lims=F, beg, fin,
 
 ```
 
+Now everything is set to run our analysis. The first one will be on New Haven dataset, I'm going to take 64 years to train our model and leave the rest to test it.
 
 ```{r}
 
-train_pe <- window(orgdata[[1]], start=start(orgdata[[1]]), end=c(1959,1))
-test_pe <- window(orgdata[[1]], start=c(1959,1), end=end(orgdata[[1]]))
-forefun(train_pe, test_pe, "", plot.res = T, lims=F)
+train_pe <- window(orgdata[[1]], start=start(orgdata[[1]]), end=c(1966,1))
+test_pe <- window(orgdata[[1]], start=c(1966,1), end=end(orgdata[[1]]))
+forefun(train_pe, test_pe, "New Haven", plot.res = T, lims=F)
 
 ```
 
+Well, now you might ask yourself, what do we do? Well, there are many metrics to analyze a good fit for our forecasts, as you can see, this code contains five of them, each one of them are easily explained and there are plenty material about their equations (which are simple) explaining how they're constructed. The real matter is to reduce these metrics, as they represent basically the distance of our forecast and the real data that we used. So the codes where constructed to let the better fitted model to appear in the first row, and as you can see, in our case of New Haven temperatures, our MAPA model seems to be the best one, is it true to all cases? we'll see.
+
+For our second dataset, i'll take a train sample ranging to the beggining of the 90's
 
 ```{r}
-train_pe <- window(orgdata[[2]], start=start(orgdata[[2]]), end=c(1991,1))
-test_pe <- window(orgdata[[2]], start=c(1991,1), end=end(orgdata[[2]]))
-nhpres <- forefun(train_pe, test_pe, "", plot.res = T, lims=F)
+train_pe <- window(orgdata[[2]], start=start(orgdata[[2]]), end=c(1990,1))
+test_pe <- window(orgdata[[2]], start=c(1990,1), end=end(orgdata[[2]]))
+nhpres <- forefun(train_pe, test_pe, "Australian", plot.res = T, lims=F)
 
 ```
 
+So, again MAPA turns out to be the best one, even when we changed the time series data frequency.
+
+At the third one I'm going to leave three years to the test set
 
 ```{r}
 train_pe <- window(orgdata[[3]], start=start(orgdata[[3]]), end=c(1957,12))
 test_pe <- window(orgdata[[3]], start=c(1958,1), end=end(orgdata[[3]]))
 
-nhpres <- forefun(train_pe, test_pe, "", plot.res = T, lims=F)
+nhpres <- forefun(train_pe, test_pe, "Air Passengers", plot.res = T, lims=F)
 
 ```
+
+Now we got another model that fits better than MAPA, and as you can see it's our time series with seasonal characteristics, so the Seasonal ARIMA model fitted very well, beyond that the exponential smooth one
+
+And the fourth one, it's almost a entire year of test set
+
+```{r}
+
+train_pe <- window(orgdata[[4]], start=start(orgdata[[4]]), end=c(2018.25))
+test_pe <- window(orgdata[[4]], start=c(2018.333), end=end(orgdata[[4]]))
+
+nhpres <- forefun(train_pe, test_pe, "IPCA", plot.res = T, lims=F)
+
+
+```
+
+## "Xeroque Romes"
+
+All right "Xeroque Romes" (hahaha), in our last prediction it happens again to be the SARIMA model to best fit the data. Does this says something about the other models? Yes, that maybe for our selected time series and for the selected period they apparently doesn't fit so well, so in this case we got other options that seems to be well fitted. Is it all? NO! Of course after all we see there's more to analyze, this is reserved to you my confrere data scientist/econometrist/manythingsist.
+
+# Remarks
+
+Well, as you can see there are plenty of models in the literature, and the necessity to explore them in all datasets you are trying to forecast turns out to be necessary, as we cannot depend in only one method to get the best result.
 
